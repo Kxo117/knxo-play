@@ -1,25 +1,50 @@
 name: Build APK
+
 on:
   push:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
+
+      - name: Check signing secret
+        env:
+          KNXO_SIGN_PASS: ${{ secrets.KNXO_SIGN_PASS }}
+        run: |
+          if [ -z "$KNXO_SIGN_PASS" ]; then
+            echo "::error::Secret KNXO_SIGN_PASS is missing. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
       - name: Unzip project
-        run: unzip KnxoPlay.zip
-      - name: Build debug APK
-        working-directory: KnxoPlay
-        run: gradle assembleDebug
+        run: |
+          ZIP=$(git -c core.quotepath=off log -1 --name-only --pretty=format: --diff-filter=AM -- '*.zip' | grep . | head -1 || true)
+          if [ -z "$ZIP" ]; then ZIP=$(ls *.zip | head -1); fi
+          echo "Using: $ZIP"
+          mkdir project
+          unzip -q "$ZIP" -d project
+
+      - name: Build signed release APK
+        working-directory: project/KnxoPlay
+        env:
+          KNXO_SIGN_PASS: ${{ secrets.KNXO_SIGN_PASS }}
+        run: gradle assembleRelease
+
       - uses: actions/upload-artifact@v4
         with:
-          name: KnxoPlay-debug-apk
-          path: KnxoPlay/app/build/outputs/apk/debug/app-debug.apk
+          name: KnxoPlay-apk
+          path: project/KnxoPlay/app/build/outputs/apk/release/*.apk
